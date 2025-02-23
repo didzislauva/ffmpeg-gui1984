@@ -1,9 +1,9 @@
-__author__ = 'didzis'
 import os
 import subprocess
 import threading
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QTextEdit, QMessageBox
+    QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QComboBox,
+    QTextEdit, QHBoxLayout
 )
 from PyQt6.QtCore import pyqtSignal
 
@@ -12,14 +12,16 @@ class MuxAudioTab(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.selected_video = None
-        self.selected_audio = None
+
+        self.video_file = None
+        self.audio_file = None
+
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout()
 
-        # Video selection
+        # Video file selection
         self.video_label = QLabel("Select Video File:")
         layout.addWidget(self.video_label)
 
@@ -27,7 +29,7 @@ class MuxAudioTab(QWidget):
         self.video_btn.clicked.connect(self.select_video)
         layout.addWidget(self.video_btn)
 
-        # Audio selection
+        # Audio file selection
         self.audio_label = QLabel("Select Audio File:")
         layout.addWidget(self.audio_label)
 
@@ -35,12 +37,28 @@ class MuxAudioTab(QWidget):
         self.audio_btn.clicked.connect(self.select_audio)
         layout.addWidget(self.audio_btn)
 
+        # Language selection
+        language_layout = QHBoxLayout()
+        language_label = QLabel("Audio Track Language:")
+        language_layout.addWidget(language_label)
+
+        self.language_combo = QComboBox()
+        self.language_combo.addItems([
+            "lav (Latvian)",
+            "eng (English)",
+            "rus (Russian)",
+            "ger (German)",
+            "fre (French)"
+        ])
+        language_layout.addWidget(self.language_combo)
+        layout.addLayout(language_layout)
+
         # Mux button
-        self.mux_btn = QPushButton("Mux Audio to Video")
-        self.mux_btn.clicked.connect(self.mux_audio)
+        self.mux_btn = QPushButton("Mux Audio into Video")
+        self.mux_btn.clicked.connect(self.mux_audio_video)
         layout.addWidget(self.mux_btn)
 
-        # FFmpeg output display
+        # FFmpeg output
         self.output_console = QTextEdit()
         self.output_console.setReadOnly(True)
         layout.addWidget(self.output_console)
@@ -49,30 +67,37 @@ class MuxAudioTab(QWidget):
         self.setLayout(layout)
 
     def select_video(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Video File", "", "Video Files (*.mp4 *.avi *.mkv *.*)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Video", "", "Video Files (*.mp4 *.avi *.mkv *.*)")
         if file_path:
-            self.selected_video = file_path
+            self.video_file = file_path
             self.video_label.setText(f"Video: {os.path.basename(file_path)}")
 
     def select_audio(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Audio File", "", "Audio Files (*.mp3 *.aac *.wav *.flac *.*)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Audio", "", "Audio Files (*.mp3 *.aac *.wav *.m4a *.*)")
         if file_path:
-            self.selected_audio = file_path
+            self.audio_file = file_path
             self.audio_label.setText(f"Audio: {os.path.basename(file_path)}")
 
-    def mux_audio(self):
-        if not self.selected_video or not self.selected_audio:
-            QMessageBox.warning(self, "Warning", "Please select both video and audio files.")
+    def mux_audio_video(self):
+        if not self.video_file or not self.audio_file:
+            self.output_console.append("Please select both video and audio files.")
             return
 
-        output_file, _ = QFileDialog.getSaveFileName(self, "Save Muxed Video", os.path.splitext(self.selected_video)[0] + "_muxed.mkv", "Video Files (*.mkv)")
+        lang_code = self.language_combo.currentText().split(' ')[0]
+        output_file, _ = QFileDialog.getSaveFileName(
+            self, "Save Muxed Video", os.path.splitext(self.video_file)[0] + "_muxed.mkv", "MKV Files (*.mkv)"
+        )
+
         if output_file:
-            ffmpeg_cmd = f'ffmpeg -i "{self.selected_video}" -i "{self.selected_audio}" -c copy "{output_file}"'
+            ffmpeg_cmd = (
+                f'ffmpeg -i "{self.video_file}" -i "{self.audio_file}" -map 0 -map 1:a -c copy -metadata:s:a:1 language={lang_code} "{output_file}"'
+            )
 
             def run_ffmpeg():
-                process = subprocess.Popen(ffmpeg_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+                process = subprocess.Popen(
+                    ffmpeg_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace'
+                )
                 for line in process.stdout:
                     self.output_signal.emit(line.strip())
 
-            thread = threading.Thread(target=run_ffmpeg)
-            thread.start()
+            threading.Thread(target=run_ffmpeg).start()
