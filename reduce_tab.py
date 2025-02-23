@@ -33,7 +33,7 @@ class ReduceTab(QWidget):
         layout.addWidget(self.select_btn)
 
         # Audio stream selection
-        self.stream_label = QLabel("Select Audio Stream:")
+        self.stream_label = QLabel("Select Audio Stream (only this will be left):")
         layout.addWidget(self.stream_label)
 
         self.stream_combo = QComboBox()
@@ -75,6 +75,16 @@ class ReduceTab(QWidget):
         self.bit_depth_combo.addItems(["8-bit", "10-bit"])
         encoding_layout.addWidget(self.bit_depth_combo)
         layout.addLayout(encoding_layout)
+
+        # Preset selection
+        preset_layout = QHBoxLayout()
+        self.preset_label = QLabel("Quality Preset (slower is better):")
+        preset_layout.addWidget(self.preset_label)
+
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow", "placebo"])
+        preset_layout.addWidget(self.preset_combo)
+        layout.addLayout(preset_layout)
 
         # Convert button
         self.convert_btn = QPushButton("Convert")
@@ -149,30 +159,25 @@ class ReduceTab(QWidget):
         bit_depth = self.bit_depth_combo.currentText()
         audio_stream = self.stream_combo.currentData()
         bitrate = self.bitrate_slider.value()
+        preset = self.preset_combo.currentText()
 
         filters = '-vf "format=yuv420p"' if bit_depth == "8-bit" else ""
         codec = self.gpu_encoder if encoding_method == "GPU" and self.gpu_encoder else "libx264"
 
         output_file, _ = QFileDialog.getSaveFileName(self, "Save Video", os.path.splitext(self.selected_file)[0] + "_converted.mkv", "Video Files (*.mkv)")
         if output_file:
-            ffmpeg_cmd = f'ffmpeg -i "{self.selected_file}" -map 0:v:0 -map 0:a:{audio_stream} -c:v {codec} {filters} -preset slow -b:v {bitrate}k -c:a copy "{output_file}"'
+            ffmpeg_cmd = f'ffmpeg -i "{self.selected_file}" -map 0:v:0 -map 0:a:{audio_stream} -c:v {codec} {filters} -preset {preset} -b:v {bitrate}k -c:a copy "{output_file}"'
 
             def run_ffmpeg():
                 process = subprocess.Popen(
                     ffmpeg_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace'
                 )
-                current_output = ''
                 for line in process.stdout:
-                    if '\r' in line:
-                        # Handle carriage returns for dynamic updates
-                        current_output = line.strip('\r').strip()
-                        self.output_signal.emit(f'\r{current_output}')
-                    else:
-                        # Regular line
-                        self.output_signal.emit(line.strip())
+                    self.output_signal.emit(line.strip())
 
             thread = threading.Thread(target=run_ffmpeg)
             thread.start()
+
     def update_output_console(self, text):
         cursor = self.output_console.textCursor()
         if text.startswith('\r'):
