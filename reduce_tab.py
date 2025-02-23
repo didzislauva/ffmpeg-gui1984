@@ -1,30 +1,30 @@
 import os
 import subprocess
 import json
-import threading
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QComboBox,
-    QSlider, QTextEdit, QMessageBox, QHBoxLayout
+    QSlider, QTextEdit, QHBoxLayout
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt
+from ffmpeg_utils import FFmpegRunner
 
 class ReduceTab(QWidget):
-    output_signal = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
 
         self.selected_file = None
-        self.audio_streams = []  # List of audio streams
+        self.audio_streams = []
         self.gpu_encoder = None
-        self.supports_10bit_gpu = False
+        self.runner = FFmpegRunner()
+
         self.init_ui()
+        self.setup_signals()
         self.check_gpu_support()
 
     def init_ui(self):
         layout = QVBoxLayout()
 
-        # File selection
         self.file_label = QLabel("Select Video File:")
         layout.addWidget(self.file_label)
 
@@ -32,14 +32,12 @@ class ReduceTab(QWidget):
         self.select_btn.clicked.connect(self.select_file)
         layout.addWidget(self.select_btn)
 
-        # Audio stream selection
         self.stream_label = QLabel("Select Audio Stream (only this will be left):")
         layout.addWidget(self.stream_label)
 
         self.stream_combo = QComboBox()
         layout.addWidget(self.stream_combo)
 
-        # Bitrate selection
         bitrate_layout = QHBoxLayout()
         self.bitrate_label = QLabel("Bitrate (kbps):")
         bitrate_layout.addWidget(self.bitrate_label)
@@ -54,20 +52,18 @@ class ReduceTab(QWidget):
         bitrate_layout.addWidget(self.bitrate_value)
         layout.addLayout(bitrate_layout)
 
-        # Estimated filesize
         self.filesize_label = QLabel("Estimated Size: 0 MB")
         layout.addWidget(self.filesize_label)
 
-        # Encoding method (CPU/GPU)
         encoding_layout = QHBoxLayout()
         self.encoding_label = QLabel("Encoding Method:")
         encoding_layout.addWidget(self.encoding_label)
 
         self.encoding_combo = QComboBox()
         self.encoding_combo.addItems(["CPU", "GPU"])
+        self.encoding_combo.currentTextChanged.connect(self.update_presets)
         encoding_layout.addWidget(self.encoding_combo)
 
-        # Bit depth selection
         self.bit_depth_label = QLabel("Bit Depth:")
         encoding_layout.addWidget(self.bit_depth_label)
 
@@ -76,28 +72,38 @@ class ReduceTab(QWidget):
         encoding_layout.addWidget(self.bit_depth_combo)
         layout.addLayout(encoding_layout)
 
-        # Preset selection
         preset_layout = QHBoxLayout()
-        self.preset_label = QLabel("Quality Preset (slower is better):")
+        self.preset_label = QLabel("Quality Preset:")
         preset_layout.addWidget(self.preset_label)
 
         self.preset_combo = QComboBox()
-        self.preset_combo.addItems(["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow", "placebo"])
         preset_layout.addWidget(self.preset_combo)
         layout.addLayout(preset_layout)
 
-        # Convert button
+        self.update_presets()
+
         self.convert_btn = QPushButton("Convert")
         self.convert_btn.clicked.connect(self.convert_video)
         layout.addWidget(self.convert_btn)
 
-        # FFmpeg output display
         self.output_console = QTextEdit()
         self.output_console.setReadOnly(True)
         layout.addWidget(self.output_console)
 
-        self.output_signal.connect(self.output_console.append)
         self.setLayout(layout)
+
+    def setup_signals(self):
+        self.runner.command_started.connect(self.on_command_started)
+        self.runner.output_signal.connect(self.output_console.append)
+        self.runner.command_finished.connect(self.on_command_finished)
+
+    def update_presets(self):
+        method = self.encoding_combo.currentText()
+        self.preset_combo.clear()
+        presets = (["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow", "placebo"]
+                   if method == "CPU" else
+                   ["slow", "medium", "fast", "hp", "hq", "bd", "ll", "llhq", "llhp", "lossless", "losslesshp"])
+        self.preset_combo.addItems(presets)
 
     def select_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Video File", "", "Video Files (*.mp4 *.avi *.mkv *.*)")
@@ -115,13 +121,12 @@ class ReduceTab(QWidget):
         result = subprocess.run(ffprobe_cmd, shell=True, capture_output=True, text=True)
         streams_info = json.loads(result.stdout)
 
-        if "streams" in streams_info:
-            for index, stream in enumerate(streams_info["streams"]):
-                codec = stream.get("codec_name", "unknown")
-                language = stream.get("tags", {}).get("language", "unknown")
-                description = f"Stream {index} - {codec} ({language})"
-                self.audio_streams.append(index)
-                self.stream_combo.addItem(description, index)
+        for index, stream in enumerate(streams_info.get("streams", [])):
+            codec = stream.get("codec_name", "unknown")
+            language = stream.get("tags", {}).get("language", "unknown")
+            desc = f"Stream {index} - {codec} ({language})"
+            self.audio_streams.append(index)
+            self.stream_combo.addItem(desc, index)
 
     def update_filesize(self):
         bitrate = self.bitrate_slider.value()
@@ -139,57 +144,22 @@ class ReduceTab(QWidget):
         return float(duration)
 
     def check_gpu_support(self):
-        nvidia_cmd = 'ffmpeg -h encoder=h264_nvenc'
-        amd_cmd = 'ffmpeg -h encoder=h264_amf'
-
-        result_nvidia = subprocess.run(nvidia_cmd, shell=True, capture_output=True, text=True)
-        result_amd = subprocess.run(amd_cmd, shell=True, capture_output=True, text=True)
-
-        if 'h264_nvenc' in result_nvidia.stdout:
-            self.gpu_encoder = 'h264_nvenc'
-            self.supports_10bit_gpu = 'yuv420p10le' in result_nvidia.stdout
-        elif 'h264_amf' in result_amd.stdout:
-            self.gpu_encoder = 'h264_amf'
-            self.supports_10bit_gpu = False
-        else:
-            self.gpu_encoder = None
+        self.gpu_encoder = ('h264_nvenc' if subprocess.run('ffmpeg -h encoder=h264_nvenc', shell=True, capture_output=True).returncode == 0 else
+                            'h264_amf' if subprocess.run('ffmpeg -h encoder=h264_amf', shell=True, capture_output=True).returncode == 0 else None)
 
     def convert_video(self):
         encoding_method = self.encoding_combo.currentText()
-        bit_depth = self.bit_depth_combo.currentText()
-        audio_stream = self.stream_combo.currentData()
-        bitrate = self.bitrate_slider.value()
-        preset = self.preset_combo.currentText()
-
-        filters = '-vf "format=yuv420p"' if bit_depth == "8-bit" else ""
         codec = self.gpu_encoder if encoding_method == "GPU" and self.gpu_encoder else "libx264"
+        filters = '-vf "format=yuv420p"' if self.bit_depth_combo.currentText() == "8-bit" else ""
 
         output_file, _ = QFileDialog.getSaveFileName(self, "Save Video", os.path.splitext(self.selected_file)[0] + "_converted.mkv", "Video Files (*.mkv)")
         if output_file:
-            ffmpeg_cmd = f'ffmpeg -i "{self.selected_file}" -map 0:v:0 -map 0:a:{audio_stream} -c:v {codec} {filters} -preset {preset} -b:v {bitrate}k -c:a copy "{output_file}"'
+            ffmpeg_cmd = f'ffmpeg -i "{self.selected_file}" -map 0:v:0 -map 0:a:{self.stream_combo.currentData()} -c:v {codec} {filters} -preset {self.preset_combo.currentText()} -b:v {self.bitrate_slider.value()}k -c:a copy "{output_file}"'
+            self.runner.run_command(ffmpeg_cmd)
 
-            def run_ffmpeg():
-                process = subprocess.Popen(
-                    ffmpeg_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace'
-                )
-                for line in process.stdout:
-                    self.output_signal.emit(line.strip())
+    def on_command_started(self, cmd):
+        self.output_console.append(f"Running command:\n{cmd}\n{'-'*60}")
 
-            thread = threading.Thread(target=run_ffmpeg)
-            thread.start()
-
-    def update_output_console(self, text):
-        cursor = self.output_console.textCursor()
-        if text.startswith('\r'):
-            # Remove the last line and update it
-            cursor.movePosition(cursor.End)
-            cursor.select(cursor.LineUnderCursor)
-            cursor.removeSelectedText()
-            cursor.deletePreviousChar()
-            cursor.insertText(text[1:])
-        else:
-            # Normal append
-            cursor.movePosition(cursor.End)
-            cursor.insertText(text + '\n')
-        self.output_console.setTextCursor(cursor)
-        self.output_console.ensureCursorVisible()
+    def on_command_finished(self, returncode):
+        status = "successfully completed." if returncode == 0 else f"finished with errors (code {returncode})."
+        self.output_console.append(f"\nFFmpeg process {status}\n{'-'*60}")
