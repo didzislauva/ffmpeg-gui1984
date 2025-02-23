@@ -3,7 +3,8 @@ from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QTabWidget
 from convert_tab import ConvertTab
 from audio_tab import AudioTab
 from resize_tab import ResizeTab
-from reduce_tab import ReduceTab
+from reduce import ReduceTab
+from mux_audio_tab import MuxAudioTab
 
 class FFmpegGUI(QWidget):
     def __init__(self):
@@ -20,12 +21,14 @@ class FFmpegGUI(QWidget):
         self.tab2 = AudioTab()
         self.tab3 = ResizeTab()
         self.tab4 = ReduceTab()
+        self.tab5 = MuxAudioTab()  # Add MuxAudioTab
 
         # Add tabs to widget
         self.tabs.addTab(self.tab1, "Convert Video")
         self.tabs.addTab(self.tab2, "Extract Audio")
         self.tabs.addTab(self.tab3, "Resize Video")
         self.tabs.addTab(self.tab4, "Reduce Video")
+        self.tabs.addTab(self.tab5, "Add Audio")  # Add Mux Audio tab
 
         # Set layout
         layout = QVBoxLayout()
