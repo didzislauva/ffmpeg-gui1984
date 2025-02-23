@@ -11,24 +11,24 @@ class FFmpegGUI(QWidget):
         super().__init__()
 
         self.setWindowTitle("FFmpeg GUI - Multi-Tab")
-        self.setGeometry(100, 100, 500, 300)
+        self.setGeometry(100, 100, 700, 300)
 
         # Create Tab Widget
         self.tabs = QTabWidget(self)
 
         # Create each tab as an instance of its class
-        self.tab1 = ConvertTab()
+        #self.tab1 = ConvertTab()
         self.tab2 = AudioTab()
-        self.tab3 = ResizeTab()
+        #self.tab3 = ResizeTab()
         self.tab4 = ReduceTab()
         self.tab5 = MuxAudioTab()  # Add MuxAudioTab
 
         # Add tabs to widget
-        self.tabs.addTab(self.tab1, "Convert Video")
+        #self.tabs.addTab(self.tab1, "Convert Video")
         self.tabs.addTab(self.tab2, "Extract Audio")
-        self.tabs.addTab(self.tab3, "Resize Video")
-        self.tabs.addTab(self.tab4, "Reduce Video")
+        #self.tabs.addTab(self.tab3, "Resize Video")
         self.tabs.addTab(self.tab5, "Add Audio")  # Add Mux Audio tab
+        self.tabs.addTab(self.tab4, "Reduce Video")
 
         # Set layout
         layout = QVBoxLayout()
