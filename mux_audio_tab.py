@@ -1,22 +1,21 @@
 import os
-import subprocess
-import threading
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QComboBox,
     QTextEdit, QHBoxLayout
 )
-from PyQt6.QtCore import pyqtSignal
+from ffmpeg_utils import FFmpegRunner
 
 class MuxAudioTab(QWidget):
-    output_signal = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
 
         self.video_file = None
         self.audio_file = None
+        self.runner = FFmpegRunner()
 
         self.init_ui()
+        self.setup_signals()
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -46,7 +45,6 @@ class MuxAudioTab(QWidget):
         self.language_combo.addItems([
             "lav (Latvian)",
             "eng (English)",
-            "rus (Russian)",
             "ger (German)",
             "fre (French)"
         ])
@@ -63,8 +61,12 @@ class MuxAudioTab(QWidget):
         self.output_console.setReadOnly(True)
         layout.addWidget(self.output_console)
 
-        self.output_signal.connect(self.output_console.append)
         self.setLayout(layout)
+
+    def setup_signals(self):
+        self.runner.command_started.connect(self.on_command_started)
+        self.runner.output_signal.connect(self.output_console.append)
+        self.runner.command_finished.connect(self.on_command_finished)
 
     def select_video(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Video", "", "Video Files (*.mp4 *.avi *.mkv *.*)")
@@ -90,14 +92,14 @@ class MuxAudioTab(QWidget):
 
         if output_file:
             ffmpeg_cmd = (
-                f'ffmpeg -i "{self.video_file}" -i "{self.audio_file}" -map 0 -map 1:a -c copy -metadata:s:a:1 language={lang_code} "{output_file}"'
+                f'ffmpeg -i "{self.video_file}" -i "{self.audio_file}" -map 0 -map 1:a '
+                f'-c copy -metadata:s:a:1 language={lang_code} "{output_file}"'
             )
+            self.runner.run_command(ffmpeg_cmd)
 
-            def run_ffmpeg():
-                process = subprocess.Popen(
-                    ffmpeg_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace'
-                )
-                for line in process.stdout:
-                    self.output_signal.emit(line.strip())
+    def on_command_started(self, cmd):
+        self.output_console.append(f"Running command:\n{cmd}\n{'-'*60}")
 
-            threading.Thread(target=run_ffmpeg).start()
+    def on_command_finished(self, returncode):
+        status = "successfully completed." if returncode == 0 else f"finished with errors (code {returncode})."
+        self.output_console.append(f"\nFFmpeg process {status}\n{'-'*60}")
