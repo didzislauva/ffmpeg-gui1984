@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QTabWidget
 from convert_tab import ConvertTab
 from audio_tab import AudioTab
 from resize_tab import ResizeTab
-from reduce import ReduceTab
+from reduce_tab import ReduceTab
 from mux_audio_tab import MuxAudioTab
 
 class FFmpegGUI(QWidget):
